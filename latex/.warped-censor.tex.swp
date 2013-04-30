@@ -172,6 +172,25 @@ Often, the reason we suspect that truncation has occured is that the sample dist
 
 [Include figures to demonstrate the use of side information in a one-or-two dimensional example]
 
+A derivation with side information:
+%
+\begin{align}
+P(\vY_o, \vc_o = 1 | \vX_o) = & \intlatent P_{\textrm{side}}(\vY_c) P_{\textrm{side}}(\vY_o) P( \vc, \vY_o, \vY_c, \vX_c | \vX_o ) d\vY_c d\vX_c \\
+= & P_{\textrm{side}}(\vY_o) P( \vc_o = 0 | \vY_o ) \underbrace{P( \vY_o | \vX_o )}_{\textrm{GPs}} \underbrace{\intlatent P( \vc_c = 1 | \vY_c ) P_{\textrm{side}}(\vY_c) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c) d\vY_c d\vX_c }_{\textrm{Probability of censoring}}
+\label{eqn:full_censoring_likelihood}
+\end{align}
+%
+The likelihood gets a constant term for the observed data, and the probability of sensoring gets an importance weight term:
+%
+\begin{align}
+& \intlatent P( \vc_c = 1 | \vY_c )  P_{\textrm{side}}(\vY_c) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c) d\vY_c d\vX_c = \\
+\approxeq & \frac{ \sum_{i=1}^S P(c_i = 1 | \vy_i ) P_{\textrm{side}}(\vy_i) }{  \sum_{i=1}^S P_{\textrm{side}}(\vy_i)}
+\label{eqn:approx-prob-censoring}
+\end{align}
+%
+In words, we can say that the model won't penalize putting mass in regions that are both compatible with the censoring and with the side information.
+
+
 \section{Inference}
 
 Inference in the GP-LVM requires integrating over the latent coordinates of each datapoint.  Thus, the model typically has hundreds or thousands of continuous parameters.  This means that Hamiltonian Monte Carlo [HMC] [cite] is an appropriate inference method \cite{IwaDuvGha2012warped}.  
@@ -237,11 +256,26 @@ then
 \end{align}
 
 This fact, combined with a symmetric proposal for $m \sim \N{w}{0}{1}$ where $p(m) = p(-m)$ means that 
-
+%
 \begin{align}
-Q( x' | x ) = \N{m}{0}{1}J(m) = \N{-m}{0}{1}J(m) = Q( x | x' ) \\
+Q( x', m' | x, m ) = & \textrm{I}( \textrm{leapfrog}(\vx, m') = \vx' )p(m'|m) \\
+= & \textrm{I}( \textrm{leapfrog}(\vx, m') = \vx' )p(m') \\
+Q( x, m | x', m' ) = & \textrm{I}( \textrm{leapfrog}(\vx', -m') = \vx )p(m|m') \\
+= & \textrm{I}( \textrm{leapfrog}(\vx', -m') = \vx )p(m) \\
+\end{align}
+%
+Because we chose $\vx'$ by the leapfrog, the indicator part is one.  so
+%
+\begin{align}
+Q( x', m' | x, m ) = & p(m') \\
+Q( x, m | x', m' ) = & p(-m') \\
+\end{align}
+%
+since the proposal distribution is symmetric, $p(m') = p(-m')$, so
+\begin{align}
 \frac{Q( 'x | x )}{Q( x | x' )} = 1
 \end{align}
+
 
 Note that $p(m)$ does not depend on $x$ - if it did, it might be harder to show that we satisfy detailed balance.
 
@@ -251,16 +285,17 @@ Thus, as long as the gradient is exact, HMC can be run without modification with
 
 Now, we will show that, even whe the gradients of HMC are stochastic, we can still construct a chain that samples from $p(x)$.
 
-We will now write $\textrm{leapfrog}(x, m, \vY_c)$ as a deterministic function of the censored $\vy$ sampled when in \eqref{eqn:approx-prob-censoring}.  These $\vy$ depend on $\vx$.
+We will now write \textrm{grad}(\vx, \vs) as the deterministic gradient of the loglikelihood used by the leapfrog dynamics.  Note that it is also a function of $\vs$, our 'random seed'.  As long as $\vs$ is constant, $\textrm{leapfrog}( \textrm{grad}(\vx, \vs), m)$ is a valid proposal distribution.
 
-Given that $Q(x' | x ) = \N{-m}{0}{1}J(m) $
+We can also put a distribution on $\vs$, and as long as its distribution does not depend on $x$ or $m$, 
 
+In our example, we will sample the censored $\vy$ by multiplying Normally-distributed $s$ by a cholesky decomposition as in \eqref{eqn:approx-prob-censoring}.  These $\vy$ depend on $\vx$, but the chain is still valid???
+%
 \begin{align}
-\textrm{leapfrog}(\vx, m) = \vx'
-\end{align}
-then
-\begin{align}
-\textrm{leapfrog}(\vx', -m) = \vx
+Q( x', m', s'| x, m, s ) = & \textrm{I}( \textrm{leapfrog}( \textrm{grad}(\vx, \vs), m') = \vx' )p(m'|m)p(s'|s) \\
+= & \textrm{I}( \textrm{leapfrog}( \textrm{grad}(\vx, \vs), m') = \vx' )p(m') p(s')\\
+Q( x, m | x', m' ) = & \textrm{I}( \textrm{leapfrog}( \textrm{grad}(\vx', \vs), m') = \vx )p(m|m')p(s|s') \\
+= & \textrm{I}( \textrm{leapfrog}( \textrm{grad}(\vx', \vs), m') = \vx )p(m) p(s) \\
 \end{align}
 
 \section{Related Work}
