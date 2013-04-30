@@ -112,28 +112,55 @@ Our model assumes that there is an underlying density model $P(\vY)$, and furthe
 
 \subsection{Computing the Likelihood}
 
-Explicitly modeling data-dependent non-response is not typically done, since computing the likelihood requires one to integrate over possible responses that one could have seen, but didn't.  To define this integral also requires a density model over responses.  In the following, $\vY = \vY_c + \vY_o$
+Explicitly modeling data-dependent non-response is not typically done, since computing the likelihood requires one to integrate over possible responses that one could have seen, but didn't.  To define this integral also requires a density model over responses. 
+% In the following, $\vY = \vY_c + \vY_o$
 
+\newcommand{\intlatent}{\int \!\!\!  \int \!\! }
+
+In the following we use that the prior on the latent space is i.i.d.: $$P( \vX_c | \vX_o ) = P( \vX_c )$$ 
+and that conditioned on the latent variables, the observations in a GPLVM are independent:
+$$ P( \vY_o, \vY_c | \vX_o, \vX_c ) = P( \vY_o | \vX_o, \vX_c ) P( \vY_c | \vX_o, \vX_c )$$ 
+and that GPs satisfy the marginalization property (they are projective):
+$$ P( \vY_o, | \vX_o, \vX_c ) = P( \vY_o | \vX_o ) $$
+%
+Now, we must attempt to integrate over all possible data that we could have seen:
+%
 \begin{align}
-P(\vY_o , X) = & \int_{\vY_c} P( \vc, \vY_o, \vY_c, \vX ) d\vY_c \\
-= & \int_{\vY_c} P( \vc, \vY_o, \vY_c | \vX ) P( \vX ) d\vY_c \\
-= & \int_{\vY_c} P( \vc | \vY_o, \vY_c, \vX ) P( \vY_o, \vY_c | \vX ) P( \vX ) d\vY_c \\
-= & \int_{\vY_c} P( \vc | \vY_o, \vY_c) P( \vY_o, \vY_c | \vX ) P( \vX ) d\vY_c \\
-= & \int_{\vY_c} P( \vc_o = 0 | \vY_o ) P( \vc_c = 1 | \vY_c ) P( \vY_o, \vY_c | \vX ) P( \vX ) d\vY_c \\
-= & P( \vc_o = 0 | \vY_o ) P( \vX ) \int_{\vY_c} P( \vc_c = 1 | \vY_c ) P( \vY_c, \vY_o | \vX ) d\vY_c  \\
-= & P( \vc_o = 0 | \vY_o ) P( \vX ) \int_{\vY_c} P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX ) P( \vY_o | \vX ) d\vY_c  \\
-= & P( \vc_o = 0 | \vY_o ) \underbrace{P( \vY_o | \vX )}_{\textrm{GPs}} P( \vX ) \underbrace{\int_{\vY_c} P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX ) d\vY_c }_{\textrm{Probability of censoring}}
+P(\vY_o, \vc_o = 1 | \vX_o) = & \intlatent P( \vc, \vY_o, \vY_c, \vX_c | \vX_o ) d\vY_c d\vX_c \\
+= & \intlatent P( \vc, \vY_o, \vY_c | \vX_o, \vX_c ) P( \vX_c | \vX_o ) d\vY_c d\vX_c \\
+= & \intlatent P( \vc | \vY_o, \vY_c, \vX_o, \vX_c ) P( \vY_o, \vY_c | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c\\
+= & \intlatent P( \vc | \vY_o, \vY_c) P( \vY_o, \vY_c | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c \\
+= & \intlatent P( \vc_o = 0 | \vY_o ) P( \vc_c = 1 | \vY_c ) P( \vY_o, \vY_c | \vX_o, \vX_c )  P( \vX_c ) d\vY_c d\vX_c\\
+= & P( \vc_o = 0 | \vY_o ) \intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c, \vY_o | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c \\
+= & P( \vc_o = 0 | \vY_o ) \intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c ) P( \vY_o | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c \\
+= & P( \vc_o = 0 | \vY_o ) \underbrace{P( \vY_o | \vX_o )}_{\textrm{GPs}} \underbrace{\intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c) d\vY_c d\vX_c }_{\textrm{Probability of censoring}}
 \label{eqn:full_censoring_likelihood}
 \end{align}
 
 \subsection{Estimating the probability of censoring}
 
-We can estimate the probability of censoring by simple Monte Carlo:
+Because the probability of sensoring is simply a double expectation over conditionally i.i.d. random variables, we can estimate the probability of censoring by simple Monte Carlo:
 %
 \begin{align}
-\int_{\vY_c} P( \vc_c = 1 | \vY_c ) P( \vY_c = 1 | \vY_o, \vX ) d\vY_c \approxeq \frac{1}{S} \sum_{i=1}^S P(c_i | \vy_i ), \quad \textrm{where} \quad \vy_1 \dots \vy_S \simiid P(\vy | \vX )
+& \intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c) d\vY_c d\vX_c = \\
+= & \expectargs{\vX_c \simiid P(X)}{\int \! P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c) d\vY_c } \\
+= & \expectargs{\vX_c \simiid P(X)}{\expectargs{ P( \vY_c | \vY_o, \vX_o, \vX_c) } {P( \vc_c = 1 | \vY_c ) }} \\
+\approxeq & \frac{1}{S} \sum_{i=1}^S P(c_i = 1 | \vy_i )
 \label{eqn:approx-prob-censoring}
 \end{align}
+%
+where
+%
+\begin{align}
+  \vx_1 \dots \vx_S \simiid P( \vX_C ) = \N{\vx}{ \vzero}{ zvI }
+\end{align}
+%
+and
+%
+\begin{align}
+ \vy_1 \dots \vy_S \simiid P(\vy | \vY_o, \vX_o, \vx) = \prod_{d=1}^D \N{\vy_d}{k(\vx, \vX_o) \vK\inv \vY_d}{k(\vx, \vx) - k(\vx, \vX_o) \vK\inv k(\vX_o, \vx)}
+\end{align}
+
 %
 In our experiments, we used $S = 100$.  Note that \eqref{eqn:approx-prob-censoring} is a non-negative, unbiased estimator of the probability that a randomly chosen datapoint will be censored.  Since this unbiased estimate is multiplied by the rest of the likelihood, our joint likelihood evaluation is also unbiased.
 
@@ -186,17 +213,17 @@ or, we can say that we are proposing the pair $(w,x)$ from the proposal distribu
 %\label{eqn:approx-acceptence-ratio-pair}
 %\end{align}
 %
-If we know that $\expect\left[ r(x) \right] = p(x)$, then the target of the chain \eqref{eqn:approx-acceptence-ratio-simple} must be proportional to $w p(x) p(w|x)$, which has a marginal of $p(x)$ - which is what we wanted.
+If we know that $\expect\left[ r(x) \right] = p(x)$, then the target of the chain \eqref{eqn:approx-acceptence-ratio-simple} must be proportional to $w p(x) p(w|x)$, which has a marginal $ \int w p(x) p(w|x) dw = p(x)$, which is what we wanted.
 
 \subsection{Exact-Approximate Hamiltonian Monte Carlo}
 
 Hamiltonian Monte-Carlo can be understood as a special case of Metropolis-Hastings with a complicated proposal distribution.  Specifically, proposals are generated by approximately following isocontours of the Hamiltonian, defined by the log-likelihood surface and a (randomly sampled) momentum term.
 
-The proposal distribution for HMC is given by:
-\begin{align}
-q(x' | x) = \textrm{leapfrog}(x, m) p(m)
-\label{eqn:proposal}
-\end{align}
+%The proposal distribution for HMC is given by:
+%\begin{align}
+%q(x' | x) = \textrm{leapfrog}(x, m) p(m)
+%\label{eqn:proposal}
+%\end{align}
 
 We can show that \eqref{eqn:proposal} is symmetric.  First, we must note that the leapfrog dynamics are symmetric when given opposite momentum.  $\textrm{leapfrog}(x, m)$ is a deterministic function of $(x,m)$.
 
@@ -209,10 +236,32 @@ then
 \textrm{leapfrog}(\vx', -m) = \vx
 \end{align}
 
+This fact, combined with a symmetric proposal for $m \sim \N{w}{0}{1}$ where $p(m) = p(-m)$ means that 
 
+\begin{align}
+Q( x' | x ) = \N{m}{0}{1}J(m) = \N{-m}{0}{1}J(m) = Q( x | x' ) \\
+\frac{Q( 'x | x )}{Q( x | x' )} = 1
+\end{align}
 
+Note that $p(m)$ does not depend on $x$ - if it did, it might be harder to show that we satisfy detailed balance.
 
-[Full derivation here]
+Thus, as long as the gradient is exact, HMC can be run without modification with an approximate likelihood, as long as the approximate likelihood $r(x)$ is not recomputed during each iteration.
+
+\subsubsection{Exact-Approximate HMC with stochastic gradients}
+
+Now, we will show that, even whe the gradients of HMC are stochastic, we can still construct a chain that samples from $p(x)$.
+
+We will now write $\textrm{leapfrog}(x, m, \vY_c)$ as a deterministic function of the censored $\vy$ sampled when in \eqref{eqn:approx-prob-censoring}.  These $\vy$ depend on $\vx$.
+
+Given that $Q(x' | x ) = \N{-m}{0}{1}J(m) $
+
+\begin{align}
+\textrm{leapfrog}(\vx, m) = \vx'
+\end{align}
+then
+\begin{align}
+\textrm{leapfrog}(\vx', -m) = \vx
+\end{align}
 
 \section{Related Work}
 
@@ -235,6 +284,10 @@ Thus, our model can be expected to be more appropriate than multiple-output regr
 \subsection{Max Welling and Yee Whye Teh's recent approximate Langevin work}
 
 Max Welling proposed using an approximate likelihood for the proposal and an exact likelihood-ratio evaluation.  We showed that you can do both.
+
+\subsection{ Adams and Murray GP density sampler }
+
+Can be viewed as a nonparametric sensoring of a Gaussian distribution.
 
 [Massive lit search required]
 
