@@ -123,7 +123,14 @@ $$ P( \vY_o, \vY_c | \vX_o, \vX_c ) = P( \vY_o | \vX_o, \vX_c ) P( \vY_c | \vX_o
 and that GPs satisfy the marginalization property (they are projective):
 $$ P( \vY_o, | \vX_o, \vX_c ) = P( \vY_o | \vX_o ) $$
 %
-Now, we must attempt to integrate over all possible data that we could have seen:
+Now, we must attempt to integrate over all possible data that we could have seen.  We want to run a chain drawing samples from $P(\vX_o | \vY_o )$:
+%
+\begin{align}
+P(\vX_o | \vY_o ) = \frac{P(\vY_o | \vX_o ) P(\vX_o )}{\int P(\vY_o | \vX_o' ) P(\vX_o' ) d\vX_o'}
+= \frac{P(\vY_o | \vX_o ) P(\vX_o )}{P(\vY_o )'}
+\end{align}
+
+So, we actually just need to evaluate $P(\vY_o | \vX_o )$:
 %
 \begin{align}
 P(\vY_o, \vc_o = 1 | \vX_o) = & \intlatent P( \vc, \vY_o, \vY_c, \vX_c | \vX_o ) d\vY_c d\vX_c \\
@@ -190,6 +197,32 @@ The likelihood gets a constant term for the observed data, and the probability o
 %
 In words, we can say that the model won't penalize putting mass in regions that are both compatible with the censoring and with the side information.
 
+\subsection{Predictive Density}
+
+When computing predictive density of observed points, we must condition on the fact that we will see them:
+%
+\begin{align}
+P(y* |c* = 0, x*, \vX_o, \vY_o ) = \frac{\tilde{P}(y*, c* = 0 | x*, \vX_o, \vY_o )}{ P(c* = 0 | \vX_o, \vY_o)}
+= \frac{\tilde{P}(c* = 0 | y* ) P(y* | x*, \vX_o, \vY_o )}{ P(c* = 0 | \vX_o, \vY_o)}
+\end{align}
+%
+and we can estimate $P(c* = 0 | \vX_o, \vY_o )$ by simple monte carlo:
+%
+\begin{align}
+P(c* = 0 | y* ) \approxeq & \frac{1}{S} \sum_{i=1}^S P(c_i = 0 | \vy_i )
+\end{align}
+%
+where
+%
+\begin{align}
+  \vx_1 \dots \vx_S \simiid P( \vX_C ) = \N{\vx}{ \vzero}{ zvI }
+\end{align}
+%
+and
+%
+\begin{align}
+ \vy_1 \dots \vy_S \simiid P(\vy | \vY_o, \vX_o, \vx) = \prod_{d=1}^D \N{\vy_d}{k(\vx, \vX_o) \vK\inv \vY_d}{k(\vx, \vx) - k(\vx, \vX_o) \vK\inv k(\vX_o, \vx)}
+\end{align}
 
 \section{Inference}
 
