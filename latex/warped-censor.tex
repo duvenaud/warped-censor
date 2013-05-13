@@ -133,43 +133,28 @@ P(\vX_o | \vY_o ) = \frac{P(\vY_o | \vX_o ) P(\vX_o )}{\int P(\vY_o | \vX_o' ) P
 So, we actually just need to evaluate $P(\vY_o | \vX_o )$:
 %
 \begin{align}
-P(\vY_o, \vc_o = 1 | \vX_o) = & \intlatent P( \vc, \vY_o, \vY_c, \vX_c | \vX_o ) d\vY_c d\vX_c \\
+P(\vY_o, \vc_o = 0 | \vX_o) = & \intlatent P( \vc, \vY_o, \vY_c, \vX_c | \vX_o ) d\vY_c d\vX_c \\
 = & \intlatent P( \vc, \vY_o, \vY_c | \vX_o, \vX_c ) P( \vX_c | \vX_o ) d\vY_c d\vX_c \\
 = & \intlatent P( \vc | \vY_o, \vY_c, \vX_o, \vX_c ) P( \vY_o, \vY_c | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c\\
 = & \intlatent P( \vc | \vY_o, \vY_c) P( \vY_o, \vY_c | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c \\
 = & \intlatent P( \vc_o = 0 | \vY_o ) P( \vc_c = 1 | \vY_c ) P( \vY_o, \vY_c | \vX_o, \vX_c )  P( \vX_c ) d\vY_c d\vX_c\\
 = & P( \vc_o = 0 | \vY_o ) \intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c, \vY_o | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c \\
 = & P( \vc_o = 0 | \vY_o ) \intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c ) P( \vY_o | \vX_o, \vX_c ) P( \vX_c ) d\vY_c d\vX_c \\
-= & P( \vc_o = 0 | \vY_o ) \underbrace{P( \vY_o | \vX_o )}_{\textrm{GPs}} \underbrace{\intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c) d\vY_c d\vX_c }_{\textrm{Probability of censoring}}
+= & P( \vc_o = 0 | \vY_o ) \underbrace{P( \vY_o | \vX_o )}_{\textrm{GPs}} \underbrace{ \intlatent \sum_{N_c = 0}^\infty P(N_c | \vY_o, \vX_o ) \prod_{i=1}^{Nc} P( \vc_c^{(i)} = 1 | \vY_c^{(i)} ) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c | N_c ) d\vY_c d\vX_c }_{\textrm{Probability of censoring}}
 \label{eqn:full_censoring_likelihood}
 \end{align}
 
 \subsection{Estimating the probability of censoring}
 
-Because the probability of sensoring is simply a double expectation over conditionally i.i.d. random variables, we can estimate the probability of censoring by simple Monte Carlo:
+The big question is, how to estimate the probabiltiy of censoring:
 %
 \begin{align}
-& \intlatent P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c) d\vY_c d\vX_c = \\
-= & \expectargs{\vX_c \simiid P(X)}{\int \! P( \vc_c = 1 | \vY_c ) P( \vY_c | \vY_o, \vX_o, \vX_c) d\vY_c } \\
-= & \expectargs{\vX_c \simiid P(X)}{\expectargs{ P( \vY_c | \vY_o, \vX_o, \vX_c) } {P( \vc_c = 1 | \vY_c ) }} \\
-\approxeq & \frac{1}{S} \sum_{i=1}^S P(c_i = 1 | \vy_i )
+\intlatent \sum_{N_c = 0}^\infty P(N_c | \vY_o, \vX_o ) \prod_{i=1}^{Nc} P( \vc_c^{(i)} = 1 | \vY_c^{(i)} ) P( \vY_c | \vY_o, \vX_o, \vX_c) P(\vX_c | N_c ) d\vY_c d\vX_c
 \label{eqn:approx-prob-censoring}
-\end{align}
-%
-where
-%
-\begin{align}
-  \vx_1 \dots \vx_S \simiid P( \vX_C ) = \N{\vx}{ \vzero}{ zvI }
-\end{align}
-%
-and
-%
-\begin{align}
- \vy_1 \dots \vy_S \simiid P(\vy | \vY_o, \vX_o, \vx) = \prod_{d=1}^D \N{\vy_d}{k(\vx, \vX_o) \vK\inv \vY_d}{k(\vx, \vx) - k(\vx, \vX_o) \vK\inv k(\vX_o, \vx)}
 \end{align}
 
 %
-In our experiments, we used $S = 100$.  Note that \eqref{eqn:approx-prob-censoring} is a non-negative, unbiased estimator of the probability that a randomly chosen datapoint will be censored.  Since this unbiased estimate is multiplied by the rest of the likelihood, our joint likelihood evaluation is also unbiased.
+%In our experiments, we used $S = 100$.  Note that \eqref{eqn:approx-prob-censoring} is a non-negative, unbiased estimator of the probability that a randomly chosen datapoint will be censored.  Since this unbiased estimate is multiplied by the rest of the likelihood, our joint likelihood evaluation is also unbiased.
 
 \section{Incorporating Side Information}
 
