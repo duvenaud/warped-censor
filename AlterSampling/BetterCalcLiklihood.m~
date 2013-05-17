@@ -1,0 +1,85 @@
+%##########################################################################
+% BetterCalcLiklihood.m
+% Calculate the probability of all censored points being censored by
+% sampling. In this case:
+%   1. Sample Xc
+%   2. Sample Yc from P(Yc|Yo Xo Xc)
+%   3. Average p(c=1|Yc)
+% See notebook "GPLVM Censored Distribution"
+%##########################################################################
+
+%##########################################################################
+% Load or generate data
+%##########################################################################
+RequiredVars = {'Y'; 'X'; 'outD'; 'noiseVar'; 'covfunc'; 'likfunc'; ...
+    'hyp'; 'Yo'; 'No'; 'XoTrue'; 'YcTrue'; 'XcTrue'; 'NcTrue'; 'N'; ...
+    'latD'; 'outD'; 'pTruncEval'; 'pTruncSamp'};
+clearVarsExcept;
+close all;
+
+existAll;
+if (~allExist && existAllI == 1)
+    fprintf('No data loaded... generating new data...\n');
+    GenTruncData;
+elseif(~allExist)
+    fprintf('Partial data loaded. Figure out what you want to do.\n');
+    return;
+end
+
+%##########################################################################
+% Test GP for calculating the likelihood of the observed data p(H1=Yo|Xo)
+%##########################################################################
+pGP = exp(-gp(hyp, @infExact, @meanZero, covfunc, likfunc, XoTrue, Yo(:, 1)));
+
+KXoTrue = covfunc(hyp.cov, XoTrue) + noiseVar * eye(size(XoTrue, 1));
+pPdf = mvnpdf(Yo(:, 1), 0, KXoTrue);
+
+assert((pPdf / pGP) - 1 < 10^-9, 'GPML and mvnpdf don''t agree on marginal likelihood.');
+
+%##########################################################################
+% Do the calculation while jointly sampling Xc and Yc
+%##########################################################################
+samplesXc = 100;           % Number of times to sample Xc
+samplesYc = 1;               % Number of times to sample Yc
+
+pYoGXo1 = 0;
+pc_hist = [];
+
+for sXc=1:samplesXc
+    % Sample Xc's
+    Xc = randn(samplesYc, latD);
+    
+    % Sample function values at these points, i.e. from p(Yc|Yo, Xo, Xc)...
+    Yc = gpSamplePosterior(Yo, XoTrue, Xc, covfunc, hyp, KXoTrue);
+    
+    pc = 0;
+    for YcI=1:samplesYc
+        pc = pc + pTruncEval(Yc(YcI, :)) / samplesYc;
+    end
+    pc_hist = [pc_hist; pc];
+    
+    pYoGXo1 = pYoGXo1 + (1 / ((1 - pc)^No)) / samplesXc;
+end
+
+%##########################################################################
+% Do the calculation while separately sampling f and y.
+%##########################################################################
+hypNoNoise = hyp;
+hypNoNoise.lik = 0;
+
+samplesXc = 100;
+samplesYc = 10;
+
+pYoGXo2 = 0;
+for sXc=1:samplesXc
+    Xc = randn(samplesYc, latD);
+    
+end
+
+%##########################################################################
+% Output results
+%##########################################################################
+fprintf('Probability of censoring a point: %f\n', mean(pc_hist));
+fprintf('Outcome of the integral         : %d\n', pYoGXo1);
+
+fprintf('\n');

@@ -6,9 +6,9 @@
 %##########################################################################
 % Load or generate data
 %##########################################################################
-RequiredVars = {'Y'; 'X'; 'outD'; 'noiseLevel'; 'covfunc'; 'hyp'; 'Yo'; ...
-                'No'; 'XoTrue'; 'YcTrue'; 'XcTrue'; 'NcTrue'; 'N'; ...
-                'latD'; 'outD'; 'pTruncEval'; 'pTruncSamp'};
+RequiredVars = {'Y'; 'X'; 'outD'; 'noiseVar'; 'covfunc'; 'likfunc'; ...
+    'hyp'; 'Yo'; 'No'; 'XoTrue'; 'YcTrue'; 'XcTrue'; 'NcTrue'; 'N'; ...
+    'latD'; 'outD'; 'pTruncEval'; 'pTruncSamp'};
 clearVarsExcept;
 close all;
 
@@ -60,7 +60,7 @@ qNcSamp = @(NcOld) (nbinrnd(No, No / (NcOld + No)));
 % plot(qNcEval(1:300, 20));
 
 % Define proposal distribution for latent points
-qXstd = 0.1;
+qXstd = 0.01;
 qXEval = @(Xnew, Xold) (mvnpdf(Xnew, Xold, qXstd.^2 * eye(size(Xnew, 1))));
 qXSamp = @(Xold) (Xold + randn(size(Xold)) * qXstd);
 
@@ -76,7 +76,8 @@ nextTime = timeGap;
 iteration = 1;
 
 % Statistics of the Markov Chain
-numAccepted = 0;
+numAcceptedPt1 = 0;
+numAcceptedPt2 = 0;
 prevNumAccepted = 0;
 previter = 0;
 aPt1_hist = [];
@@ -87,6 +88,9 @@ Nc_hist = [];
 figure(2);
 figure(3);
 figure(4);
+figure(5);
+figure(6);
+figure(7);
 
 tic;
 while (1)
@@ -148,31 +152,41 @@ while (1)
     
     % Perturb Xpert = Xo Xc
     XoProp = qXSamp(Xo);
+%     XoProp = qXSamp(Xo);
     XcProp = qXSamp(Xc);
     
     % Draw new GP values at the perturbed points from P(Yhat|X, Y, Xpert)
-    Yhat = gpSamplePosterior([Yo; Yc], [Xo; Xc], [XoProp; XcProp], covfunc, hyp);
+    YcHat = gpSamplePosterior([Yo; Yc], [XoProp; Xc], XcProp, covfunc, hyp);
     
     % Perturb GP mapping using Ypert = alpha * Yhat + sqrt(1 - alpha^2) *
     % Yp.
     % Yp ~ P(Y|Xpert)
-    Ypert = zeros(size(Xo, 1) + size(Xc, 1), size(Yhat, 2));
-    [Ypert(:, 1) R] = gpSamplePrior([Xo; Xc], covfunc, hyp);
-    Ypert(:, [2, 3]) = R'* randn(size(Ypert, 1), size(Ypert, 2) - 1);
-    Yprop = MCPt2ProposalRelaxation * Yhat + sqrt(1-MCPt2ProposalRelaxation^2) * Ypert;
-    YoProp = Yprop(1:No, :);
-    YcProp = Yprop(No+1:end, :);
+    YcPert = zeros(size(Xc, 1), size(YcHat, 2));
+    [YcPert(:, 1) R] = gpSamplePrior(Xc, covfunc, hyp);
+    YcPert(:, [2, 3]) = R'* randn(size(YcPert, 1), size(YcPert, 2) - 1);
+    YcProp = MCPt2ProposalRelaxation * YcHat + sqrt(1-MCPt2ProposalRelaxation^2) * YcPert;
     
     % Accept with correct probability.
     aPt2 = ( qXEval(XoProp, Xo) * qXEval(XcProp, Xc) ) / ...
-           ( qXEval(Xo, XoProp) * qXEval(Xc, XcProp) ) * ...
-           mvnpdf([XoProp; XcProp]) * prod(1 - pTruncEval(YoProp)) * prod(pTruncEval(YcProp)) / ...
-           mvnpdf([Xo; Xc]) * prod(1 - pTruncEval(Yo)) * prod(pTruncEval(Yc));
+        ( qXEval(Xo, XoProp) * qXEval(Xc, XcProp) ) * ...
+        mvnpdf(XcProp) * prod(pTruncEval(YcProp)) / ...
+        mvnpdf(Xc)     * prod(pTruncEval(Yc));
+    
+    if (aPt2 >= rand(1))
+        acceptedPt2 = 1;
         
+        Yc = YcProp;
+        Xo = XoProp;
+        Xc = XcProp;
+    else
+        acceptedPt2 = 0;
+    end
+    
     %######################################################################
     % Gather statistics of Markov Chain
     %######################################################################
-    numAccepted = numAccepted + acceptedPt1;
+    numAcceptedPt1 = numAcceptedPt1 + acceptedPt1;
+    numAcceptedPt2 = numAcceptedPt2 + acceptedPt2;
     aPt1_hist = [aPt1_hist; aPt1];
     Nc_hist = [Nc_hist; Nc];
     aPt2_hist = [aPt2_hist; aPt2];
@@ -181,21 +195,22 @@ while (1)
     % END OF MARKOV CHAIN - Loop and drawing bits and pieces
     %######################################################################
     if (toc - nextTime) > 0
-%     if (accepted)
         % Output statistics
         toc;
         fprintf('Iteration       : %i\n', iteration);
         fprintf('Iterations/s    : %f\n', (iteration - previter) / timeGap);
-        fprintf('Accepted        : %i\n', numAccepted);
-        fprintf('Acception rate  : %f%%\n\n', (numAccepted / iteration) * 100);
-        fprintf('Recent accepted : %i\n', numAccepted - prevNumAccepted);
+        fprintf('Accepted        : %i\n', numAcceptedPt1);
+        fprintf('Acception rate  : %f%%\n\n', (numAcceptedPt1 / iteration) * 100);
+        fprintf('Recent accepted : %i\n', numAcceptedPt1 - prevNumAccepted);
         fprintf('\n');
         
-        % Draw code...
+        %##################################################################
+        % Plot Markov chain statistics
+        %##################################################################
         set(0, 'CurrentFigure', 2);
         subplot(2, 1, 1);
         plot(log10(min(aPt1_hist, 1)));
-        title('Acceptance probability');
+        title('Acceptance probability (Pt1)');
         ylim([-4, 0]);
         
         subplot(2, 2, 3);
@@ -207,18 +222,44 @@ while (1)
         barh(bins, counts);
         
         set(0, 'CurrentFigure', 3);
-        plot3(Yo(:, 1), Yo(:, 2), Yo(:, 3), 'x', Yc(:, 1), Yc(:, 2), Yc(:, 3), 'o');
+        plot(log10(min(aPt2_hist, 1)));
+        title('Acceptance probability (Pt2)');
+        ylim([-4, 0]);
         
+        %##################################################################
+        % Plot the state of the GPLVM
+        %##################################################################
         set(0, 'CurrentFigure', 4);
-        plot(min(aPt2_hist, 1));
-
-        tilefigs;
+        % Plot the observed and censored data in the output space
+        if (size(Yo, 2) == 3)
+            plot3(Yo(:, 1), Yo(:, 2), Yo(:, 3), 'x', Yc(:, 1), Yc(:, 2), Yc(:, 3), 'o');
+        elseif (size(Yo, 2) == 2)
+            plot(Yo(:, 1), Yo(:, 2), 'x', Yc(:, 1), Yc(:, 2), 'o');
+        end
+        
+        % Plot the mappings from the latent space
+        if (size(Xo, 2) == 1)
+            assert(size(Yo, 2) == 3);
+            [Xsorted, Xpermutation] = sort(X);
+            [XoSorted, XoPermutation] = sort(Xo);
+            [XcSorted, XcPermutation] = sort(Xc);
+            
+            set(0, 'CurrentFigure', 5);
+            plot(Xsorted, Y(Xpermutation, 1), XoSorted, Yo(XoPermutation, 1), XcSorted, Yc(XcPermutation, 1));
+            set(0, 'CurrentFigure', 6);
+            plot(Xsorted, Y(Xpermutation, 2), XoSorted, Yo(XoPermutation, 2), XcSorted, Yc(XcPermutation, 2));
+            set(0, 'CurrentFigure', 7);
+            plot(Xsorted, Y(Xpermutation, 3), XoSorted, Yo(XoPermutation, 3), XcSorted, Yc(XcPermutation, 3));
+        end
+        
+        tilefigs([2 2], 0, 2, (2:3)');
+        tilefigs([2 3], 0, 1, (4:7)');
         drawnow;
         
         % Setup next display loop
         timeGap = min(timeGap * 1.1, 3600);
         nextTime = toc + timeGap;
-        prevNumAccepted = numAccepted;
+        prevNumAccepted = numAcceptedPt1;
         previter = iteration;
     end
     

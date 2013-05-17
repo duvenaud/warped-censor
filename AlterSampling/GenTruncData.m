@@ -10,14 +10,15 @@
 % Dataset parameters
 outD = 3;                       % GPLVM output dimension
 latD = 1;                       % GPLVM latent space dimension
-noiseLevel = 0.0009;            % Noise in output space
+noiseVar = 0.0009;            % Noise in output space
 covfunc = @covSEiso;            % Covariance function in latent space
+likfunc = @likGauss;
 hyp.cov = [0 0];                % Hyperparameters
-hyp.lik = 0.5*log(noiseLevel);  % Noiselevel in observations,
-% convention as in GPML (log of stddev)
+hyp.lik = 0.5*log(noiseVar);  % Noiselevel in observations,
+                                % convention as in GPML (log of stddev)
 
 % Generate data and initialise
-[Y X] = gplvmSamplePrior(200, outD, latD, noiseLevel, covfunc, hyp);
+[Y X] = gplvmSamplePrior(200, outD, latD, noiseVar, covfunc, hyp);
 N = size(Y, 1);
 
 % Define truncation function

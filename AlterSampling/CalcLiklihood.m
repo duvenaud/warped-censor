@@ -1,4 +1,11 @@
+%##########################################################################
 % CalcLiklihood.m
+% Calculate the probability of all censored points being censored by
+% sampling. In this case:
+%   1. Sample Xc
+%   2. Sample Yc from P(Yc|Yo Xo Xc)
+%   3. Average p(c=1|Yc)
+%##########################################################################
 tic;
 % gplvm;
 
@@ -42,6 +49,8 @@ for Nc = 44:NcMax
     drawnow;
 end
 
+
+%% plot
 figure(1);
 plot(1:NcMax, Pc);
 figure(2);
