@@ -37,49 +37,72 @@ pPdf = mvnpdf(Yo(:, 1), 0, KXoTrue);
 assert((pPdf / pGP) - 1 < 10^-9, 'GPML and mvnpdf don''t agree on marginal likelihood.');
 
 %##########################################################################
-% Do the calculation while jointly sampling Xc and Yc
+% Repeat for multiple runs
 %##########################################################################
-samplesXc = 100;           % Number of times to sample Xc
-samplesYc = 1;               % Number of times to sample Yc
-
-pYoGXo1 = 0;
-pc_hist = [];
-
-for sXc=1:samplesXc
-    % Sample Xc's
-    Xc = randn(samplesYc, latD);
+h1 = [];
+h2 = [];
+for iteration=1:100
+    %######################################################################
+    % Do the calculation while jointly sampling Xc and Yc
+    %######################################################################
+    samplesXc = 10;                % Number of times to sample Xc
+    samplesYc = 1000;               % Number of times to sample Yc
     
-    % Sample function values at these points, i.e. from p(Yc|Yo, Xo, Xc)...
-    Yc = gpSamplePosterior(Yo, XoTrue, Xc, covfunc, hyp, KXoTrue);
+    pYoGXo1 = 0;
+    pc_hist = [];
     
-    pc = 0;
-    for YcI=1:samplesYc
-        pc = pc + pTruncEval(Yc(YcI, :)) / samplesYc;
+    for sXc=1:samplesXc
+        % Sample Xc's
+        Xc = randn(samplesYc, latD);
+        
+        % Sample function values at these points, i.e. from p(Yc|Yo, Xo, Xc)...
+        Yc = gpSamplePosterior(Yo, XoTrue, Xc, covfunc, hyp, KXoTrue);
+        
+        pc = 0;
+        for YcI=1:samplesYc
+            pc = pc + pTruncEval(Yc(YcI, :)) / samplesYc;
+        end
+        pc_hist = [pc_hist; pc];
+        
+        pYoGXo1 = pYoGXo1 + (1 / ((1 - pc)^No)) / samplesXc;
     end
-    pc_hist = [pc_hist; pc];
+    h1 = [h1; pYoGXo1];
     
-    pYoGXo1 = pYoGXo1 + (1 / ((1 - pc)^No)) / samplesXc;
+    %######################################################################
+    % Do the calculation while separately sampling f and y
+    %######################################################################
+    hypNoNoise = hyp;
+    hypNoNoise.lik = 0.5 * log(10^-10);
+    
+    samplesXc = 10;
+    samplesYc = 1000;
+    
+    pYoGXo2 = 0;
+    for sXc=1:samplesXc
+        Xc = randn(samplesYc, latD);
+        
+        Fc = gpSamplePosterior(Yo, XoTrue, Xc, covfunc, hypNoNoise, KXoTrue);
+        
+        pc = 0;
+        for YcI=1:samplesYc
+            pc = pc + pTruncEval(Fc(YcI, :) + noiseVar * randn(1)) / samplesYc;
+        end
+        
+        pYoGXo2 = pYoGXo2 + (1 / ((1 - pc)^No)) / samplesXc;
+    end
+    h2 = [h2; pYoGXo2];
+    
+    %######################################################################
+    % Output results
+    %######################################################################
+    fprintf('Probability of censoring a point: %f\n', mean(pc_hist));
+    fprintf('Outcome of integral1            : %d\n', pYoGXo1);
+    fprintf('Outcome of integral2            : %d\n', pYoGXo2);
+
+    fprintf('%i\n\n', iteration);
 end
 
-%##########################################################################
-% Do the calculation while separately sampling f and y.
-%##########################################################################
-hypNoNoise = hyp;
-hypNoNoise.lik = 0;
-
-samplesXc = 100;
-samplesYc = 10;
-
-pYoGXo2 = 0;
-for sXc=1:samplesXc
-    Xc = randn(samplesYc, latD);
-    
-end
-
-%##########################################################################
-% Output results
-%##########################################################################
-fprintf('Probability of censoring a point: %f\n', mean(pc_hist));
-fprintf('Outcome of the integral         : %d\n', pYoGXo1);
-
-fprintf('\n');
+figure(1);
+hist(log10(h1));
+figure(2);
+hist(log10(h2));

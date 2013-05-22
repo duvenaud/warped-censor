@@ -24,7 +24,8 @@ end
 %##########################################################################
 % Set parameters
 %##########################################################################
-MCPt2ProposalRelaxation = 0.95;
+predSamplesCull = 800;          % Number of samples to characterise the
+                                % predictive distribution with.
 
 %##########################################################################
 % Print the run's parameters
@@ -47,22 +48,31 @@ assert(size(XcTrue, 1) == NcTrue);
 % Just as a test, initialise to the 'ground truth', from which we
 % generated.
 Xo = XoTrue;
-Xc = XcTrue;            % No need to init Nc, taken from size(Xc) later on.
-Yc = YcTrue;
+Xc = [];            % No need to init Nc, taken from size(Xc) later on.
+Yc = [];
 
 % Define proposal distribution for the censored points
 % For now, choose the observed truncation rate as the parameter for the
 % nbinobial distribution.
-qNcEval = @(NcNew, NcOld) (nbinpdf(NcNew, No, No / (NcOld + No)));
-qNcSamp = @(NcOld) (nbinrnd(No, No / (NcOld + No)));
+qNcEval = @(NcNew, NcOld) (nbinpdf(NcNew, No, No / (NcOld + No + 1)));
+qNcSamp = @(NcOld) (nbinrnd(No, No / (NcOld + No + 1)));
 % qNcEval = @(NcNew, NcOld) (nbinpdf(NcNew, No, 1 - NcTrue / N));
 % qNcSample = @(NcOld) (nbinrnd(No, 1 - NcTrue / N));
 % plot(qNcEval(1:300, 20));
 
 % Define proposal distribution for latent points
-qXstd = 0.01;
-qXEval = @(Xnew, Xold) (mvnpdf(Xnew, Xold, qXstd.^2 * eye(size(Xnew, 1))));
-qXSamp = @(Xold) (Xold + randn(size(Xold)) * qXstd);
+qXostd = 0.002;
+qXoEval = @(Xnew, Xold) (mvnpdf(Xnew, Xold, qXostd.^2 * eye(size(Xnew, 1))));
+qXoSamp = @(Xold) (Xold + randn(size(Xold)) * qXostd);
+
+qXcstd = 0.05;
+qXcEval = @(Xnew, Xold) (mvnpdf(Xnew, Xold, qXcstd.^2 * eye(size(Xnew, 1))));
+qXcSamp = @(Xold) (Xold + randn(size(Xold)) * qXcstd);
+
+% Alternative proposal distribution for the censored latent points. Sample
+% a random subset of the censored points, then perturb them.
+% qXcEval = @SubsetPerturbEval;
+% qXcSamp = @SubsetPerturbSamp;
 
 %##########################################################################
 % Run the Markov Chain
@@ -71,18 +81,19 @@ qXSamp = @(Xold) (Xold + randn(size(Xold)) * qXstd);
 % of Xc.
 %##########################################################################
 % Stuff for the loop
-timeGap = 1;
+timeGap = 300;
 nextTime = timeGap;
 iteration = 1;
 
 % Statistics of the Markov Chain
-numAcceptedPt1 = 0;
-numAcceptedPt2 = 0;
 prevNumAccepted = 0;
 previter = 0;
-aPt1_hist = [];
-aPt2_hist = [];
+numAccepted = 0;
+a_hist = [];
 Nc_hist = [];
+Xacc = [];
+Yacc = [];
+YaccFactor = 1;
 
 % Setup required figures
 figure(2);
@@ -91,6 +102,7 @@ figure(4);
 figure(5);
 figure(6);
 figure(7);
+figure(8);
 
 tic;
 while (1)
@@ -128,11 +140,11 @@ while (1)
     
     % Alternative way of calculating the acceptance probability using
     % gammaln().
-    aPt1 = ( qNcEval(Nc, NcProp) / qNcEval(NcProp, Nc) ) * ...
+    a(1) = ( qNcEval(Nc, NcProp) / qNcEval(NcProp, Nc) ) * ...
         exp(gammaln(Nc + 1) + gammaln(NcProp + No) - gammaln(NcProp + 1) - gammaln(Nc + No) + truncLogProb);
     
-    if (aPt1 >= rand(1))
-        acceptedPt1 = 1;
+    if (a(1) >= rand(1))
+        accepted(1) = 1;
         if (NcProp > Nc)
             Xc = [Xc; XcAdd];
             Yc = [Yc; Yadd];
@@ -143,53 +155,100 @@ while (1)
         
         Nc = NcProp;
     else
-        acceptedPt1 = 0;
+        accepted(1) = 0;
     end
     
     %######################################################################
-    % Part 2: Resample latent variables and GP mappings.
+    % Part 2: Resample latent variables Xc.
     %######################################################################
-    
-    % Perturb Xpert = Xo Xc
-    XoProp = qXSamp(Xo);
-%     XoProp = qXSamp(Xo);
-    XcProp = qXSamp(Xc);
-    
-    % Draw new GP values at the perturbed points from P(Yhat|X, Y, Xpert)
-    YcHat = gpSamplePosterior([Yo; Yc], [XoProp; Xc], XcProp, covfunc, hyp);
-    
-    % Perturb GP mapping using Ypert = alpha * Yhat + sqrt(1 - alpha^2) *
-    % Yp.
-    % Yp ~ P(Y|Xpert)
-    YcPert = zeros(size(Xc, 1), size(YcHat, 2));
-    [YcPert(:, 1) R] = gpSamplePrior(Xc, covfunc, hyp);
-    YcPert(:, [2, 3]) = R'* randn(size(YcPert, 1), size(YcPert, 2) - 1);
-    YcProp = MCPt2ProposalRelaxation * YcHat + sqrt(1-MCPt2ProposalRelaxation^2) * YcPert;
-    
-    % Accept with correct probability.
-    aPt2 = ( qXEval(XoProp, Xo) * qXEval(XcProp, Xc) ) / ...
-        ( qXEval(Xo, XoProp) * qXEval(Xc, XcProp) ) * ...
-        mvnpdf(XcProp) * prod(pTruncEval(YcProp)) / ...
-        mvnpdf(Xc)     * prod(pTruncEval(Yc));
-    
-    if (aPt2 >= rand(1))
-        acceptedPt2 = 1;
+    if (size(Xc, 1) ~= 0)
+        XcProp = qXcSamp(Xc);
+        YcProp = gpSamplePosterior([Yo; Yc], [Xo; Xc], XcProp, covfunc, hyp);
         
-        Yc = YcProp;
-        Xo = XoProp;
-        Xc = XcProp;
+        laPt2 = sum(mvnlogpdf(XcProp', 0, eye(latD))) - sum(mvnlogpdf(Xc', 0, eye(latD))) + ...
+            sum(log(pTruncEval(YcProp))) - sum(log(pTruncEval(Yc))); % + ...
+        %             log(qXcEval(Xc, XcProp)) - log(qXcEval(XcProp, Xc));
+        a(2) = exp(laPt2);
+        
+        if (a(2) >= rand(1))
+            accepted(2) = 1;
+            Xc = XcProp;
+            Yc = YcProp;
+        else
+            accepted(2) = 0;
+        end
     else
-        acceptedPt2 = 0;
+        accepted(2) = 0;
+    end
+    
+    %######################################################################
+    % Part 3: Modifying the rejected values Yc.
+    %######################################################################
+    if (size(Xc, 1) ~= 0)
+        YcProp = gpSamplePosterior(Yo, Xo, Xc, covfunc, hyp);
+        
+        a(3) = exp( sum(log(pTruncEval(YcProp))) - sum(log(pTruncEval(Yc))) );
+        
+        % Plot proposal
+        % plot(Xc, YcProp(:, 1:2), 'x');
+        
+        if (a(3) >= rand(1))
+            accepted(3) = 1;
+            Yc = YcProp;
+        else
+            accepted(3) = 0;
+        end
+    else
+        accepted(3) = 0;
+    end
+    
+    %######################################################################
+    % Part 4: Modifying the rejected latent points Xo.
+    %######################################################################
+    XoProp = qXoSamp(Xo);
+    K_XoXc = feval(covfunc, hyp.cov, [Xo; Xc]) + eye(Nc + No) * noiseVar;
+    K_XoPropXc = feval(covfunc, hyp.cov, [XoProp; Xc]) + eye(Nc + No) * noiseVar;
+    
+    a(4) = exp(sum(mvnlogpdf([Yo; Yc], 0, K_XoPropXc)) - sum(mvnlogpdf([Yo; Yc], 0, K_XoXc)));
+    
+    if (a(4) >= rand(1))
+        accepted(4) = 1;
+        Xo = XoProp;
+    else
+        accepted(4) = 0;
+    end
+    
+    assert(sum(isnan(a)) == 0);
+    
+    %######################################################################
+    % Accumulate results for predictive densities etc...
+    %######################################################################
+    if (mod(iteration, 200) == 1)
+%         Xall = [Xo; Xc];
+%         Yall = [Yo; Yc];
+%         Yacc = [Yacc; Yall(randperm(size(Yall, 1), ceil(size(Yall, 1) / YaccFactor)), :)];
+%         
+%         if (size(Yacc, 1) > 20000)
+%             YaccFactor = YaccFactor * size(Yacc, 1) / 10000;
+%             Yacc = Yacc(randperm(size(Yacc, 1), 10000), :);
+%         end
+        Ns = 800;
+        Xs = randn(Ns, latD);
+        Ys = gpSamplePosterior([Yo; Yc], [Xo; Xc], Xs, covfunc, hyp);
+        
+        Yacc = [Yacc; Ys(randperm(Ns, ceil(Ns / YaccFactor)), :)];
+        if (size(Yacc, 1) > predSamplesCull)
+            YaccFactor = YaccFactor * 2;
+            Yacc = Yacc(randperm(size(Yacc, 1), predSamplesCull / 2), :);
+        end
     end
     
     %######################################################################
     % Gather statistics of Markov Chain
     %######################################################################
-    numAcceptedPt1 = numAcceptedPt1 + acceptedPt1;
-    numAcceptedPt2 = numAcceptedPt2 + acceptedPt2;
-    aPt1_hist = [aPt1_hist; aPt1];
+    numAccepted = numAccepted + accepted;
+    a_hist = [a_hist; a];
     Nc_hist = [Nc_hist; Nc];
-    aPt2_hist = [aPt2_hist; aPt2];
     
     %######################################################################
     % END OF MARKOV CHAIN - Loop and drawing bits and pieces
@@ -199,9 +258,9 @@ while (1)
         toc;
         fprintf('Iteration       : %i\n', iteration);
         fprintf('Iterations/s    : %f\n', (iteration - previter) / timeGap);
-        fprintf('Accepted        : %i\n', numAcceptedPt1);
-        fprintf('Acception rate  : %f%%\n\n', (numAcceptedPt1 / iteration) * 100);
-        fprintf('Recent accepted : %i\n', numAcceptedPt1 - prevNumAccepted);
+        fprintf('Accepted        : %i %i %i %i\n', numAccepted(1), numAccepted(2), numAccepted(3), numAccepted(4));
+        fprintf('Acception rate  : %f %f %f %f%%\n\n', (numAccepted / iteration) * 100);
+        fprintf('Recent accepted : %i %i %i %i\n', numAccepted - prevNumAccepted);
         fprintf('\n');
         
         %##################################################################
@@ -209,22 +268,20 @@ while (1)
         %##################################################################
         set(0, 'CurrentFigure', 2);
         subplot(2, 1, 1);
-        plot(log10(min(aPt1_hist, 1)));
+        plot(log10(min(a_hist, 1)));
         title('Acceptance probability (Pt1)');
         ylim([-4, 0]);
         
         subplot(2, 2, 3);
         plot(Nc_hist);
-        title('Number of censored points');
+        hold on; plot([1, length(Nc_hist)], [NcTrue, NcTrue]); hold off;
+        NcPlotYlim = ylim;
         
+        title('Number of censored points');
         subplot(2, 2, 4);
         [counts bins] = hist(Nc_hist);
         barh(bins, counts);
-        
-        set(0, 'CurrentFigure', 3);
-        plot(log10(min(aPt2_hist, 1)));
-        title('Acceptance probability (Pt2)');
-        ylim([-4, 0]);
+        ylim(NcPlotYlim);
         
         %##################################################################
         % Plot the state of the GPLVM
@@ -232,10 +289,20 @@ while (1)
         set(0, 'CurrentFigure', 4);
         % Plot the observed and censored data in the output space
         if (size(Yo, 2) == 3)
-            plot3(Yo(:, 1), Yo(:, 2), Yo(:, 3), 'x', Yc(:, 1), Yc(:, 2), Yc(:, 3), 'o');
+            if (size(Yc, 2) ~= 0)
+                plot3(Yo(:, 1), Yo(:, 2), Yo(:, 3), 'x', Yc(:, 1), Yc(:, 2), Yc(:, 3), 'o');
+            else
+                plot3(Yo(:, 1), Yo(:, 2), Yo(:, 3), 'x');
+            end
         elseif (size(Yo, 2) == 2)
-            plot(Yo(:, 1), Yo(:, 2), 'x', Yc(:, 1), Yc(:, 2), 'o');
+            if (size(Yc, 2) ~= 0)
+                plot(Yo(:, 1), Yo(:, 2), 'x', Yc(:, 1), Yc(:, 2), 'o');
+            else
+                plot(Yo(:, 1), Yo(:, 2), 'x');
+            end
         end
+        title('Observed space');
+        legend('Observed points', 'Current censored samples', 'Location', 'NorthWest');
         
         % Plot the mappings from the latent space
         if (size(Xo, 2) == 1)
@@ -244,22 +311,63 @@ while (1)
             [XoSorted, XoPermutation] = sort(Xo);
             [XcSorted, XcPermutation] = sort(Xc);
             
-            set(0, 'CurrentFigure', 5);
-            plot(Xsorted, Y(Xpermutation, 1), XoSorted, Yo(XoPermutation, 1), XcSorted, Yc(XcPermutation, 1));
-            set(0, 'CurrentFigure', 6);
-            plot(Xsorted, Y(Xpermutation, 2), XoSorted, Yo(XoPermutation, 2), XcSorted, Yc(XcPermutation, 2));
-            set(0, 'CurrentFigure', 7);
-            plot(Xsorted, Y(Xpermutation, 3), XoSorted, Yo(XoPermutation, 3), XcSorted, Yc(XcPermutation, 3));
+            for od=1:outD
+                set(0, 'CurrentFigure', 4 + od);
+                if (size(Yc, 2) ~= 0)
+                    plot(Xsorted, Y(Xpermutation, od), XoSorted, Yo(XoPermutation, od), 'o', XcSorted, Yc(XcPermutation, od), 'x');
+                else
+                    plot(Xsorted, Y(Xpermutation, od), XoSorted, Yo(XoPermutation, od), 'o');
+                end
+                legend('Ground truth mapping', 'Observed', 'Current censored samples', 'Location', 'NorthEast');
+                title(['Latent mapping ', num2str(od)]);
+                xlabel('X');
+                ylabel(['Y', num2str(od)]);
+            end
+            
+        elseif(size(Xo, 2) == 2)
+            [xq, yq] = meshgrid(-4:.2:4, -4:.2:4);
+            
+            for od=1:outD
+                Xs = [Xo; Xc];
+                Ys = [Yo; Yc];
+                
+                YGrid = griddata(X(:, 1), X(:, 2), Y(:, od), xq, yq);
+                YsGrid = griddata(Xs(:, 1), Xs(:, 2), Ys(:, od), xq, yq);
+                
+                set(0, 'CurrentFigure', 4 + od);
+                mesh(xq, yq, YGrid, zeros(size(YGrid)));
+                hold on;
+                mesh(xq, yq, YsGrid, zeros(size(YsGrid)) + 1);
+                alpha(0.5);
+                plot3(XoTrue(:, 1), XoTrue(:, 2), Yo(:, od), 'x', ...
+                    Xc(:, 1), Xc(:, 2), Yc(:, od), 'o');
+                hold off;
+                legend('Ground truth mapping', 'Currently sampled mapping', 'Ground truth points', 'Currently sampled points', 'Location', 'NorthWest');
+            end
+        end
+        
+        % Plot the distribution in the latent space
+        set(0, 'CurrentFigure', 8);
+        if (size(Xo, 2) == 1)
+            hist([Xo; Xc]);
+        elseif (size(Xo, 2) == 2)
+            plot([Xo(:, 1); Xc(:, 1)], [Xo(:, 2); Xc(:, 2)], 'x');
         end
         
         tilefigs([2 2], 0, 2, (2:3)');
-        tilefigs([2 3], 0, 1, (4:7)');
+        tilefigs([2 3], 0, 1, (4:8)');
         drawnow;
+        
+        % Plot the predictive distribution
+        set(0, 'CurrentFigure', 3);
+        if (outD == 3)
+            plot3(Yacc(:, 1), Yacc(:, 2), Yacc(:, 3), 'x');
+        end
         
         % Setup next display loop
         timeGap = min(timeGap * 1.1, 3600);
         nextTime = toc + timeGap;
-        prevNumAccepted = numAcceptedPt1;
+        prevNumAccepted = numAccepted;
         previter = iteration;
     end
     
