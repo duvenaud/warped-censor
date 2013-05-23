@@ -26,6 +26,8 @@ end
 %##########################################################################
 predSamplesCull = 800;          % Number of samples to characterise the
                                 % predictive distribution with.
+timeGap = 30 * 60;
+timeFactor = 1.1;
 
 %##########################################################################
 % Print the run's parameters
@@ -81,7 +83,6 @@ qXcSamp = @(Xold) (Xold + randn(size(Xold)) * qXcstd);
 % of Xc.
 %##########################################################################
 % Stuff for the loop
-timeGap = 300;
 nextTime = timeGap;
 iteration = 1;
 
@@ -94,6 +95,7 @@ Nc_hist = [];
 Xacc = [];
 Yacc = [];
 YaccFactor = 1;
+XaccFactor = 1;
 
 % Setup required figures
 figure(2);
@@ -224,7 +226,7 @@ while (1)
     % Accumulate results for predictive densities etc...
     %######################################################################
     if (mod(iteration, 200) == 1)
-%         Xall = [Xo; Xc];
+        Xall = [Xo; Xc];
 %         Yall = [Yo; Yc];
 %         Yacc = [Yacc; Yall(randperm(size(Yall, 1), ceil(size(Yall, 1) / YaccFactor)), :)];
 %         
@@ -240,6 +242,12 @@ while (1)
         if (size(Yacc, 1) > predSamplesCull)
             YaccFactor = YaccFactor * 2;
             Yacc = Yacc(randperm(size(Yacc, 1), predSamplesCull / 2), :);
+        end
+        
+        Xacc = [Xacc; Xall(randperm(size(Xall, 1), ceil(size(Xall, 1) / XaccFactor)), :)];
+        if (size(Xacc, 1) > predSamplesCull)
+            XaccFactor = XaccFactor * 2;
+            Xacc = Xacc(randperm(size(Xacc, 1), predSamplesCull / 2), :);
         end
     end
     
@@ -313,6 +321,7 @@ while (1)
             
             for od=1:outD
                 set(0, 'CurrentFigure', 4 + od);
+                subplot(3, 1, [1;2]);
                 if (size(Yc, 2) ~= 0)
                     plot(Xsorted, Y(Xpermutation, od), XoSorted, Yo(XoPermutation, od), 'o', XcSorted, Yc(XcPermutation, od), 'x');
                 else
@@ -322,6 +331,20 @@ while (1)
                 title(['Latent mapping ', num2str(od)]);
                 xlabel('X');
                 ylabel(['Y', num2str(od)]);
+                
+                subplot(3, 1, 3);
+                bounds = xlim;
+                r = bounds(1):0.01:bounds(2);
+                [~, bincentres] = hist([Xo; Xc], 30);
+                hist([Xo; Xc], 20);
+                hold on;
+                p = plot(r, mvnpdf(r', 0, 1) * size([Xo; Xc], 1) * (bincentres(4) - bincentres(3)));
+                set(p, 'Color', 'red');
+                hold off;
+%                 yl = ylim;
+%                 [nxo blo] = hist([Xo; Xc]);
+%                 nxo = nxo / max(nxo) * yl(2) / 3;
+%                 bar(blo, nxo);
             end
             
         elseif(size(Xo, 2) == 2)
@@ -349,14 +372,17 @@ while (1)
         % Plot the distribution in the latent space
         set(0, 'CurrentFigure', 8);
         if (size(Xo, 2) == 1)
-            hist([Xo; Xc]);
+            hist(Xacc, 30);
+            [~, bincentres] = hist(Xacc, 30);
+            hold on;
+            bounds = xlim;
+            r = bounds(1):0.01:bounds(2);
+            p = plot(r, mvnpdf(r', 0, 1) * size(Xacc, 1) * (bincentres(4) - bincentres(3)));
+            set(p, 'Color', 'red');
+            hold off;
         elseif (size(Xo, 2) == 2)
-            plot([Xo(:, 1); Xc(:, 1)], [Xo(:, 2); Xc(:, 2)], 'x');
+            plot(Xacc(:, 1), Xacc(:, 2), 'x');
         end
-        
-        tilefigs([2 2], 0, 2, (2:3)');
-        tilefigs([2 3], 0, 1, (4:8)');
-        drawnow;
         
         % Plot the predictive distribution
         set(0, 'CurrentFigure', 3);
@@ -364,8 +390,12 @@ while (1)
             plot3(Yacc(:, 1), Yacc(:, 2), Yacc(:, 3), 'x');
         end
         
+        tilefigs([2 2], 0, 2, (2:3)');
+        tilefigs([2 3], 0, 1, (4:8)');
+        drawnow;
+        
         % Setup next display loop
-        timeGap = min(timeGap * 1.1, 3600);
+        timeGap = min(timeGap * timeFactor, 3600);
         nextTime = toc + timeGap;
         prevNumAccepted = numAccepted;
         previter = iteration;
